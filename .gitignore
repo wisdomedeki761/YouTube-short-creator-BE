@@ -1,0 +1,38 @@
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Dependencies
+node_modules/
+package-lock.json
+yarn.lock
+
+# Temporary files
+temp/
+*.tmp
+*.temp
+.claude
+.vs
+# Video files (optional - uncomment to ignore)
+# filler_videos/
+# *.mp4
+# *.mov
+# *.avi
+# *.mkv
+
+# OS files
+.DS_Store
+Thumbs.db
+*.log
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Build files
+dist/
+build/
+NUL

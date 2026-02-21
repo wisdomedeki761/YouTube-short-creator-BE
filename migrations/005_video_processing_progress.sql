@@ -1,0 +1,2 @@
+  ALTER TABLE videos
+  ADD COLUMN IF NOT EXISTS processing_progress INTEGER DEFAULT 0;
