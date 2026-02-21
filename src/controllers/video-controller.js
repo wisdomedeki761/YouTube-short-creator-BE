@@ -175,10 +175,18 @@ async function updateVideoStatus(userId, videoId, status) {
 /**
  * Approve video and post to platforms
  */
-async function approveVideo(userId, videoId, platforms, title = null, description = null) {
+async function approveVideo(userId, videoId, platforms, title = null, description = null, youtubeAccounts = null, facebookAccounts = null) {
   try {
     const { handleApproval } = require('../workflow/manager');
-    const result = await handleApproval(videoId, userId, platforms, title, description);
+    const result = await handleApproval(
+      videoId,
+      userId,
+      platforms,
+      title,
+      description,
+      youtubeAccounts,
+      facebookAccounts
+    );
 
     return result;
   } catch (error) {

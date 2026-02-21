@@ -148,6 +148,7 @@ module.exports = {
   updateAccountUsage,
   shouldRotateAccount,
   getAccountUsage,
+  getAvailableFillerAccount,
   STORAGE_LIMIT,
   STORAGE_THRESHOLD,
 };

@@ -199,7 +199,7 @@ async function processVideoWorkflow(videoId, userId, mainVideoPath) {
 /**
  * Handle user approval - post to platforms
  */
-async function handleApproval(videoId, userId, platforms, customTitle = null, customDescription = null) {
+async function handleApproval(videoId, userId, platforms, customTitle = null, customDescription = null, youtubeAccountIds = null, facebookAccountIds = null) {
   try {
     // Default to both if not specified
     const selectedPlatforms = Array.isArray(platforms) && platforms.length > 0
@@ -252,7 +252,11 @@ async function handleApproval(videoId, userId, platforms, customTitle = null, cu
     const caption = customDescription || generateVideoCaption();
 
     let youtubeResult = null;
+    let youtubeUrls = [];
+    let youtubeErrors = [];
     let facebookResult = null;
+    let facebookUrls = [];
+    let facebookErrors = [];
     const results = [];
 
     // Get user's API keys from database
@@ -262,15 +266,66 @@ async function handleApproval(videoId, userId, platforms, customTitle = null, cu
       .eq('user_id', userId);
 
     try {
-      // Post to YouTube (only if selected)
+      // Post to YouTube (multiple accounts if specified)
       if (selectedPlatforms.includes('youtube')) {
         const youtubeKeys = (apiKeys || []).filter(k => k.platform === 'youtube');
         if (youtubeKeys.length > 0) {
           try {
-            const youtubeKey = await getYoutubeKey(userId, youtubeKeys);
-            youtubeResult = await uploadShort(editedPath, title, caption, youtubeKey);
-            results.push(`YouTube: ${youtubeResult.url}`);
-            console.log(`✅ Posted to YouTube Shorts: ${youtubeResult.url}`);
+            // Determine which accounts to use
+            let accountsToUse;
+            if (youtubeAccountIds && youtubeAccountIds.length > 0) {
+              // Use specified accounts
+              accountsToUse = youtubeKeys.filter(k => youtubeAccountIds.includes(k.id));
+            } else {
+              // Fallback to round-robin (backward compatible)
+              const youtubeKey = await getYoutubeKey(userId, youtubeKeys);
+              accountsToUse = [youtubeKey];
+            }
+
+            console.log(`📤 Posting to ${accountsToUse.length} YouTube account(s)...`);
+
+            // Post to all accounts in parallel
+            const youtubeResults = await Promise.allSettled(
+              accountsToUse.map(async (apiKey) => {
+                console.log(`  → Posting to: ${apiKey.account_tag || 'Unnamed Account'}`);
+                const result = await uploadShort(editedPath, title, caption, apiKey);
+                return {
+                  url: result.url,
+                  videoId: result.videoId,
+                  accountId: apiKey.id,
+                  accountTag: apiKey.account_tag,
+                  channelId: apiKey.channel_id,
+                  channelTitle: apiKey.channel_title,
+                  postedAt: new Date().toISOString(),
+                };
+              })
+            );
+
+            // Separate successes and failures
+            youtubeResults.forEach((result, idx) => {
+              const account = accountsToUse[idx];
+              const accountLabel = account.account_tag || account.channel_title || 'Unknown';
+
+              if (result.status === 'fulfilled') {
+                youtubeUrls.push(result.value);
+                results.push(`YouTube (${accountLabel}): ${result.value.url}`);
+                console.log(`✅ Posted to ${accountLabel}: ${result.value.url}`);
+              } else {
+                youtubeErrors.push({
+                  accountId: account.id,
+                  accountTag: account.account_tag,
+                  error: result.reason.message,
+                });
+                results.push(`YouTube (${accountLabel}): Error - ${result.reason.message}`);
+                console.error(`⚠️  Error posting to ${accountLabel}:`, result.reason.message);
+              }
+            });
+
+            // Store first URL for backward compatibility
+            if (youtubeUrls.length > 0) {
+              youtubeResult = { url: youtubeUrls[0].url };
+            }
+
           } catch (error) {
             console.error('⚠️  Error posting to YouTube:', error.message);
             results.push(`YouTube error: ${error.message}`);
@@ -280,16 +335,64 @@ async function handleApproval(videoId, userId, platforms, customTitle = null, cu
         }
       }
 
-      // Post to Facebook (only if selected)
+      // Post to Facebook (multiple accounts if specified)
       if (selectedPlatforms.includes('facebook')) {
         const facebookKeys = (apiKeys || []).filter(k => k.platform === 'facebook');
         if (facebookKeys.length > 0) {
           try {
-            const facebookKey = await getFacebookKey(userId, facebookKeys);
-            const pageId = 'me';
-            facebookResult = await uploadReel(editedPath, caption, pageId, facebookKey);
-            results.push(`Facebook: ${facebookResult.url}`);
-            console.log(`✅ Posted to Facebook Reels: ${facebookResult.url}`);
+            // Determine which accounts to use
+            let accountsToUse;
+            if (facebookAccountIds && facebookAccountIds.length > 0) {
+              // Use specified accounts
+              accountsToUse = facebookKeys.filter(k => facebookAccountIds.includes(k.id));
+            } else {
+              // Fallback to round-robin (backward compatible)
+              const facebookKey = await getFacebookKey(userId, facebookKeys);
+              accountsToUse = [facebookKey];
+            }
+
+            console.log(`📤 Posting to ${accountsToUse.length} Facebook account(s)...`);
+
+            // Post to all accounts in parallel
+            const facebookResults = await Promise.allSettled(
+              accountsToUse.map(async (apiKey) => {
+                console.log(`  → Posting to: ${apiKey.account_tag || 'Unnamed Account'}`);
+                const result = await uploadReel(editedPath, caption, 'me', apiKey);
+                return {
+                  url: result.url,
+                  reelId: result.reelId,
+                  accountId: apiKey.id,
+                  accountTag: apiKey.account_tag,
+                  postedAt: new Date().toISOString(),
+                };
+              })
+            );
+
+            // Separate successes and failures
+            facebookResults.forEach((result, idx) => {
+              const account = accountsToUse[idx];
+              const accountLabel = account.account_tag || 'Unknown';
+
+              if (result.status === 'fulfilled') {
+                facebookUrls.push(result.value);
+                results.push(`Facebook (${accountLabel}): ${result.value.url}`);
+                console.log(`✅ Posted to ${accountLabel}: ${result.value.url}`);
+              } else {
+                facebookErrors.push({
+                  accountId: account.id,
+                  accountTag: account.account_tag,
+                  error: result.reason.message,
+                });
+                results.push(`Facebook (${accountLabel}): Error - ${result.reason.message}`);
+                console.error(`⚠️  Error posting to ${accountLabel}:`, result.reason.message);
+              }
+            });
+
+            // Store first URL for backward compatibility
+            if (facebookUrls.length > 0) {
+              facebookResult = { url: facebookUrls[0].url };
+            }
+
           } catch (error) {
             console.error('⚠️  Error posting to Facebook:', error.message);
             results.push(`Facebook error: ${error.message}`);
@@ -314,13 +417,15 @@ async function handleApproval(videoId, userId, platforms, customTitle = null, cu
       console.error('⚠️  Error deleting from Pinata:', error);
     }
 
-    // Update status to posted
+    // Update status to posted with all URLs
     await client
       .from('videos')
       .update({
         status: VIDEO_STATUS.POSTED,
         youtube_url: youtubeResult?.url || null,
+        youtube_urls: youtubeUrls.length > 0 ? youtubeUrls : null,
         facebook_url: facebookResult?.url || null,
+        facebook_urls: facebookUrls.length > 0 ? facebookUrls : null,
       })
       .eq('id', videoId);
 
@@ -338,8 +443,14 @@ async function handleApproval(videoId, userId, platforms, customTitle = null, cu
       success: true,
       videoId: videoId,
       results: results,
-      youtube: youtubeResult,
-      facebook: facebookResult,
+      youtube: youtubeUrls.length > 0 ? {
+        urls: youtubeUrls,
+        errors: youtubeErrors,
+      } : youtubeResult,
+      facebook: facebookUrls.length > 0 ? {
+        urls: facebookUrls,
+        errors: facebookErrors,
+      } : facebookResult,
       message: `${SUCCESS_MESSAGES.VIDEO_POSTED}\n\n${results.join('\n')}`,
     };
   } catch (error) {

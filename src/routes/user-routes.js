@@ -11,6 +11,7 @@
 const express = require('express');
 const router = express.Router();
 const { successResponse, errorResponse } = require('../utils/response');
+const { approvedUserMiddleware } = require('../middleware/approval-middleware');
 const {
   getProfile,
   updateProfile,
@@ -18,7 +19,8 @@ const {
   getApiKeys,
   deleteApiKey,
   testApiKey,
-  addYouTubeOAuthKey
+  addYouTubeOAuthKey,
+  updateAccountTag
 } = require('../controllers/user-controller');
 
 /**
@@ -74,7 +76,7 @@ router.put('/profile', async (req, res) => {
  * GET /api/users/api-keys
  * List user's API keys
  */
-router.get('/api-keys', async (req, res) => {
+router.get('/api-keys', approvedUserMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
 
@@ -95,7 +97,7 @@ router.get('/api-keys', async (req, res) => {
  * POST /api/users/api-keys
  * Add new API key
  */
-router.post('/api-keys', async (req, res) => {
+router.post('/api-keys', approvedUserMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
     const { platform, apiKey } = req.body;
@@ -123,7 +125,7 @@ router.post('/api-keys', async (req, res) => {
  * DELETE /api/users/api-keys/:id
  * Delete API key
  */
-router.delete('/api-keys/:id', async (req, res) => {
+router.delete('/api-keys/:id', approvedUserMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
     const { id } = req.params;
@@ -145,7 +147,7 @@ router.delete('/api-keys/:id', async (req, res) => {
  * POST /api/users/api-keys/:id/test
  * Test API key validity
  */
-router.post('/api-keys/:id/test', async (req, res) => {
+router.post('/api-keys/:id/test', approvedUserMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
     const { id } = req.params;
@@ -167,7 +169,7 @@ router.post('/api-keys/:id/test', async (req, res) => {
  * POST /api/users/youtube/oauth/start
  * Generate YouTube OAuth authorization URL
  */
-router.post('/youtube/oauth/start', async (req, res) => {
+router.post('/youtube/oauth/start', approvedUserMiddleware, async (req, res) => {
   try {
     const { clientId, clientSecret, redirectUri } = req.body;
 
@@ -195,10 +197,10 @@ router.post('/youtube/oauth/start', async (req, res) => {
  * POST /api/users/youtube/oauth/callback
  * Exchange OAuth code for tokens and store credentials
  */
-router.post('/youtube/oauth/callback', async (req, res) => {
+router.post('/youtube/oauth/callback', approvedUserMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { code, clientId, clientSecret, redirectUri } = req.body;
+    const { code, clientId, clientSecret, redirectUri, accountTag } = req.body;
 
     if (!code || !clientId || !clientSecret || !redirectUri) {
       return res.status(400).json({
@@ -215,7 +217,8 @@ router.post('/youtube/oauth/callback', async (req, res) => {
       clientSecret,
       tokens.access_token,
       tokens.refresh_token,
-      new Date(tokens.expiry_date)
+      new Date(tokens.expiry_date),
+      accountTag
     );
 
     return res.status(201).json({
@@ -233,10 +236,10 @@ router.post('/youtube/oauth/callback', async (req, res) => {
  * POST /api/users/api-keys/youtube/manual
  * Add YouTube OAuth credentials manually (advanced users)
  */
-router.post('/api-keys/youtube/manual', async (req, res) => {
+router.post('/api-keys/youtube/manual', approvedUserMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
-    const { clientId, clientSecret, accessToken, refreshToken } = req.body;
+    const { clientId, clientSecret, accessToken, refreshToken, accountTag } = req.body;
 
     if (!clientId || !clientSecret || !accessToken || !refreshToken) {
       return res.status(400).json({
@@ -253,7 +256,8 @@ router.post('/api-keys/youtube/manual', async (req, res) => {
       clientSecret,
       accessToken,
       refreshToken,
-      expiryDate
+      expiryDate,
+      accountTag
     );
 
     return res.status(201).json({
@@ -263,6 +267,35 @@ router.post('/api-keys/youtube/manual', async (req, res) => {
     console.error('Add manual YouTube credentials error:', error.message);
     return res.status(400).json({
       ...errorResponse('ADD_YOUTUBE_ERROR', error.message).body
+    });
+  }
+});
+
+/**
+ * PUT /api/users/api-keys/:id/tag
+ * Update account tag/name
+ */
+router.put('/api-keys/:id/tag', approvedUserMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { id } = req.params;
+    const { tag } = req.body;
+
+    if (!tag || !tag.trim()) {
+      return res.status(400).json({
+        ...errorResponse('VALIDATION_ERROR', 'Account tag is required').body
+      });
+    }
+
+    const updated = await updateAccountTag(userId, id, tag.trim());
+
+    return res.status(200).json({
+      ...successResponse(updated, 'Account tag updated').body
+    });
+  } catch (error) {
+    console.error('Update tag error:', error.message);
+    return res.status(400).json({
+      ...errorResponse('UPDATE_TAG_ERROR', error.message).body
     });
   }
 });

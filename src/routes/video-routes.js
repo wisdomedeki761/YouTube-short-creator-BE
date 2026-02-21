@@ -15,6 +15,7 @@ const path = require('path');
 const fs = require('fs-extra');
 const { successResponse, errorResponse, paginatedResponse } = require('../utils/response');
 const { uploadVideo: uploadVideoMiddleware } = require('../middleware/upload');
+const { approvedUserMiddleware } = require('../middleware/approval-middleware');
 const {
   createVideo,
   getVideos,
@@ -30,7 +31,7 @@ const { emitProgress, emitError } = require('../websocket/socket-server');
  * POST /api/videos/upload
  * Upload and process video (Pinata-only, no Supabase storage)
  */
-router.post('/upload', uploadVideoMiddleware, async (req, res) => {
+router.post('/upload', approvedUserMiddleware, uploadVideoMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
 
@@ -148,13 +149,27 @@ router.get('/:id', async (req, res) => {
  * POST /api/videos/:id/approve
  * Approve and post video to YouTube/Facebook
  */
-router.post('/:id/approve', async (req, res) => {
+router.post('/:id/approve', approvedUserMiddleware, async (req, res) => {
   try {
     const userId = req.user.id;
     const { id } = req.params;
-    const { platforms, title, description } = req.body; // platforms: ['youtube', 'facebook'], title: string, description: string
+    const {
+      platforms,
+      youtubeAccounts,
+      facebookAccounts,
+      title,
+      description
+    } = req.body;
 
-    const result = await approveVideo(userId, id, platforms, title, description);
+    const result = await approveVideo(
+      userId,
+      id,
+      platforms,
+      title,
+      description,
+      youtubeAccounts,
+      facebookAccounts
+    );
 
     return res.status(200).json({
       ...successResponse(result, 'Video approved and posted successfully').body
