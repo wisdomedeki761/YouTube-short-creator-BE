@@ -26,12 +26,12 @@ const fileFilter = (req, file, cb) => {
 };
 
 // Configure multer for video uploads
-// Max file size: 100MB
+// Max file size: 200MB
 const uploadVideo = multer({
   storage,
   fileFilter,
   limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB
+    fileSize: 200 * 1024 * 1024, // 200MB
   },
 }).single('video'); // Field name: 'video'
 

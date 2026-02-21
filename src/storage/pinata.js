@@ -250,7 +250,7 @@ async function getPinataAccountUsage(accountNumber) {
     };
   } catch (error) {
     console.error(`❌ Error getting usage for Pinata account ${accountNumber}:`, error.message);
-    
+
     // Return default values if API call fails
     return {
       used: 0,

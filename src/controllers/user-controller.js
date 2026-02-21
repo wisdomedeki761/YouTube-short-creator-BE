@@ -141,7 +141,7 @@ async function getApiKeys(userId) {
     const client = getSupabaseClient();
     const { data: keys, error } = await client
       .from('api_keys')
-      .select('id, platform, api_key, status, usage_count, last_used, created_at')
+      .select('id, platform, api_key, status, usage_count, last_used, created_at, auth_type, account_tag, channel_id, channel_title, token_expiry')
       .eq('user_id', userId)
       .order('created_at', { ascending: false });
 
@@ -158,6 +158,11 @@ async function getApiKeys(userId) {
       usageCount: key.usage_count || 0,
       lastUsed: key.last_used || null,
       createdAt: key.created_at || key.createdAt || new Date().toISOString(),
+      authType: key.auth_type,
+      accountTag: key.account_tag,
+      channelId: key.channel_id,
+      channelTitle: key.channel_title,
+      tokenExpiry: key.token_expiry,
     }));
 
     return mappedKeys;
@@ -236,9 +241,45 @@ async function testApiKey(userId, keyId) {
 /**
  * Add YouTube OAuth credentials
  */
-async function addYouTubeOAuthKey(userId, clientId, clientSecret, accessToken, refreshToken, expiryDate) {
+async function addYouTubeOAuthKey(userId, clientId, clientSecret, accessToken, refreshToken, expiryDate, accountTag = null) {
   try {
     const client = getSupabaseClient();
+
+    // Fetch channel information using the access token
+    let channelId = null;
+    let channelTitle = null;
+
+    try {
+      const { validateApiKey } = require('../platforms/youtube');
+      const validation = await validateApiKey({
+        auth_type: 'oauth2',
+        client_id: clientId,
+        client_secret: clientSecret,
+        access_token: accessToken,
+        refresh_token: refreshToken,
+        token_expiry: expiryDate.toISOString(),
+      });
+
+      if (validation.valid) {
+        channelId = validation.channelId;
+        channelTitle = validation.channelTitle;
+      }
+    } catch (error) {
+      console.warn('Failed to fetch channel info:', error.message);
+      // Continue anyway - channel info is nice-to-have
+    }
+
+    // Generate default tag if not provided
+    if (!accountTag) {
+      // Count existing YouTube accounts for this user
+      const { count } = await client
+        .from('api_keys')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('platform', 'youtube');
+
+      accountTag = `YouTube Account ${(count || 0) + 1}`;
+    }
 
     const { data: key, error } = await client
       .from('api_keys')
@@ -253,6 +294,9 @@ async function addYouTubeOAuthKey(userId, clientId, clientSecret, accessToken, r
         token_expiry: expiryDate.toISOString(),
         status: 'active',
         api_key: JSON.stringify({ clientId, clientSecret }),
+        account_tag: accountTag,
+        channel_id: channelId,
+        channel_title: channelTitle,
       })
       .select()
       .single();
@@ -268,9 +312,43 @@ async function addYouTubeOAuthKey(userId, clientId, clientSecret, accessToken, r
       status: key.status,
       tokenExpiry: key.token_expiry,
       createdAt: key.created_at,
+      accountTag: key.account_tag,
+      channelId: key.channel_id,
+      channelTitle: key.channel_title,
     };
   } catch (error) {
     throw new Error(`Failed to add YouTube OAuth key: ${error.message}`);
+  }
+}
+
+/**
+ * Update account tag for an API key
+ */
+async function updateAccountTag(userId, keyId, newTag) {
+  try {
+    const client = getSupabaseClient();
+
+    const { data, error } = await client
+      .from('api_keys')
+      .update({ account_tag: newTag })
+      .eq('id', keyId)
+      .eq('user_id', userId)
+      .select()
+      .single();
+
+    if (error) {
+      throw error;
+    }
+
+    return {
+      id: data.id,
+      platform: data.platform,
+      accountTag: data.account_tag,
+      channelTitle: data.channel_title,
+      status: data.status,
+    };
+  } catch (error) {
+    throw new Error(`Failed to update account tag: ${error.message}`);
   }
 }
 
@@ -281,5 +359,6 @@ module.exports = {
   getApiKeys,
   deleteApiKey,
   testApiKey,
-  addYouTubeOAuthKey
+  addYouTubeOAuthKey,
+  updateAccountTag
 };

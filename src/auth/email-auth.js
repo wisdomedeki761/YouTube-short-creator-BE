@@ -63,7 +63,7 @@ async function registerUser(email, password, username) {
         username: username.trim(),
         password_hash: passwordHash,
         auth_method: 'email',
-        is_approved: true, // Auto-approve email users (admin can manage)
+        is_approved: false, // Require admin approval for new users
         is_email_verified: true,
         created_at: new Date().toISOString()
       })
@@ -88,7 +88,8 @@ async function registerUser(email, password, username) {
       },
       accessToken,
       refreshToken,
-      message: 'User registered successfully'
+      message: 'Registration successful. Your account is pending admin approval.',
+      requiresApproval: true
     };
 
   } catch (error) {

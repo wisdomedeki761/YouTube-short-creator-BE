@@ -6,10 +6,80 @@
 const { getSupabaseClient } = require('../storage/supabase');
 const { v4: uuidv4 } = require('uuid');
 const { uploadToPinata } = require('../storage/pinata');
-const { getNextFillerAccount, updateAccountUsage } = require('../storage/storage-manager');
+const { getNextFillerAccount, updateAccountUsage, getAvailableFillerAccount, STORAGE_THRESHOLD } = require('../storage/storage-manager');
 const { getVideoDuration } = require('../video/utils');
 const path = require('path');
 const fs = require('fs-extra');
+
+// Track accounts that are full locally (since Pinata API doesn't provide storage info)
+const fullAccounts = new Set();
+
+/**
+ * Upload to Pinata with automatic account rotation on failure
+ * If one account is full, automatically tries the next available account
+ * @param {string} filePath - Path to file to upload
+ * @param {object} options - Upload options (name, contentType, metadata)
+ * @returns {Promise<{ipfsHash: string, ipfsUrl: string, accountNumber: number}>}
+ */
+async function uploadToPinataWithRotation(filePath, options = {}) {
+  const availableAccounts = getAvailableFillerAccount();
+  const fileSizeBytes = fs.statSync(filePath).size;
+
+  console.log(`\n🔄 Starting upload with account rotation...`);
+  console.log(`   File size: ${(fileSizeBytes / 1024 / 1024).toFixed(2)}MB`);
+
+  // Try each account
+  for (const accountNumber of availableAccounts) {
+    // Skip if account is marked as full
+    if (fullAccounts.has(accountNumber)) {
+      console.log(`⏭️  Skipping account ${accountNumber} (marked as full)`);
+      continue;
+    }
+
+    try {
+      console.log(`\n📤 Attempting upload to account ${accountNumber}...`);
+      const result = await uploadToPinata(filePath, accountNumber, options);
+
+      console.log(`✅ Successfully uploaded to account ${accountNumber}`);
+      console.log(`   IPFS Hash: ${result.ipfsHash}`);
+
+      // Track the upload in storage cache
+      updateAccountUsage(accountNumber, fileSizeBytes);
+
+      return {
+        ...result,
+        accountNumber
+      };
+    } catch (error) {
+      // Check if it's a storage-related error
+      const isStorageError =
+        error.message.includes('413') ||  // Payload too large
+        error.message.includes('full') ||
+        error.message.includes('storage') ||
+        error.message.includes('quota') ||
+        error.response?.status === 413;
+
+      if (isStorageError) {
+        console.warn(`⚠️  Account ${accountNumber} appears to be full`);
+        fullAccounts.add(accountNumber);
+
+        // Continue to next account
+        continue;
+      }
+
+      // For other errors, still try next account but log the error
+      console.error(`❌ Error uploading to account ${accountNumber}:`, error.message);
+      continue;
+    }
+  }
+
+  // If we get here, all accounts failed
+  throw new Error(
+    `Failed to upload to any available Pinata account. ` +
+    `Full accounts: [${Array.from(fullAccounts).join(', ')}]. ` +
+    `Please check Pinata account status or add more accounts.`
+  );
+}
 
 /**
  * Get all users
@@ -67,7 +137,7 @@ async function approveUser(userId) {
         is_approved: true,
         approved_at: new Date().toISOString()
       })
-      .eq('telegram_id', userId)
+      .eq('id', userId)
       .select()
       .single();
 
@@ -92,7 +162,7 @@ async function rejectUser(userId) {
       .update({
         is_approved: false
       })
-      .eq('telegram_id', userId)
+      .eq('id', userId)
       .select()
       .single();
 
@@ -119,7 +189,7 @@ async function revokeUser(userId) {
       .update({
         is_approved: false
       })
-      .eq('telegram_id', userId)
+      .eq('id', userId)
       .select()
       .single();
 
@@ -268,14 +338,9 @@ async function uploadFillerVideo(filePath, originalFilename) {
       console.warn('⚠️  Continuing upload with duration = 0');
     }
 
-    // Get next available Pinata account (1-4)
-    console.log('📦 Selecting Pinata account for filler video...');
-    const pinataAccount = await getNextFillerAccount();
-    console.log(`✅ Selected Pinata account: ${pinataAccount}`);
-
-    // Upload to Pinata with serial name
-    console.log(`📤 Uploading to Pinata account ${pinataAccount}...`);
-    const uploadResult = await uploadToPinata(filePath, pinataAccount, {
+    // Upload to Pinata with automatic account rotation on full storage
+    console.log('📦 Starting upload with automatic account rotation...');
+    const uploadResult = await uploadToPinataWithRotation(filePath, {
       name: `${serialName}.mp4`, // Use serial name for Pinata
       contentType: 'video/mp4',
       metadata: {
@@ -289,7 +354,9 @@ async function uploadFillerVideo(filePath, originalFilename) {
       },
     });
 
+    const pinataAccount = uploadResult.accountNumber;
     console.log(`✅ Uploaded to Pinata successfully`);
+    console.log(`   Account: ${pinataAccount}`);
     console.log(`   IPFS Hash: ${uploadResult.ipfsHash}`);
     console.log(`   IPFS URL: ${uploadResult.ipfsUrl}`);
 
