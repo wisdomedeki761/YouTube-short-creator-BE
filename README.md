@@ -1,13 +1,13 @@
-# Video Editor Bot - Telegram Split-Screen Video Editor with Multi-Platform Posting
+# Video Editor - Split-Screen Video Editor with Multi-Platform Posting
 
-A production-ready Telegram bot that automates video editing with split-screen effects and posts to YouTube Shorts and Facebook Reels. Includes user approval system, API key management, cloud storage, and automatic cleanup.
+A production-ready application that automates video editing with split-screen effects and posts to YouTube Shorts and Facebook Reels. Includes user approval system, API key management, cloud storage, and automatic cleanup.
 
 ## Features
 
-✅ **Telegram Interface** - Send videos directly to bot
+✅ **Web Interface** - Upload videos through the application
 ✅ **Split-Screen Editing** - 75% main video + 25% filler video automatically
-✅ **Cloud-Based Filler Videos** - Upload/manage via `/addfillervideo` command
-✅ **User Approval System** - Admin controls who can use the bot
+✅ **Cloud-Based Filler Videos** - Upload/manage filler video library
+✅ **User Approval System** - Admin controls who can use the application
 ✅ **YouTube Shorts** - Auto-post with multiple API key support
 ✅ **Facebook Reels** - Auto-post with auto-generated captions
 ✅ **Supabase Storage** - Secure cloud storage with automatic cleanup
@@ -22,7 +22,6 @@ A production-ready Telegram bot that automates video editing with split-screen e
 - **Node.js** v14+
 - **FFmpeg** installed and in PATH
 - **PM2** installed globally (`npm install -g pm2`)
-- **Telegram** account
 - **Supabase** account (free tier works)
 - **YouTube API** credentials
 - **Facebook** access token
@@ -31,19 +30,34 @@ A production-ready Telegram bot that automates video editing with split-screen e
 
 ## Complete Setup Guide
 
-### Phase 1: Telegram Bot Setup
+### Phase 1: Project Setup
 
-1. **Create bot with BotFather**
-   - Open Telegram → Search `@BotFather`
-   - Send `/newbot`
-   - Choose name: "Video Editor Bot"
-   - Choose username: "myvideoeditor_bot" (must end with `_bot`)
-   - Save the **API Token** (looks like: `123456789:ABCdefGHIjklmnoPQRstuvWxyz`)
+1. **Clone/download project**
+   ```bash
+   cd C:\Projects\Video-Editor
+   ```
 
-2. **Get your Telegram ID**
-   - Open Telegram → Search `@userinfobot`
-   - Send `/start`
-   - Copy your **User ID** (a number like: `987654321`)
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Create .env file**
+   ```
+   cp .env.example .env
+   ```
+
+4. **Edit .env with your credentials**
+   ```env
+   SUPABASE_URL=https://xxxxx.supabase.co
+   SUPABASE_KEY=eyJhbGc...
+   ENCRYPTION_KEY=a3f8d9e2c1b5f7a9d4e8c3f1b9a5d7e2
+   ```
+
+   **Generate encryption key:**
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(16).toString('hex'))"
+   ```
 
 ### Phase 2: Supabase Setup
 
@@ -76,7 +90,7 @@ A production-ready Telegram bot that automates video editing with split-screen e
    - Download credentials JSON
 
 2. **Get API Key**
-   - Save your API key (you'll add it via bot commands later)
+   - Save your API key (you'll add it via the application later)
 
 ### Phase 4: Facebook Setup
 
@@ -87,42 +101,12 @@ A production-ready Telegram bot that automates video editing with split-screen e
 
 2. **Get Access Token**
    - Get **Page Access Token** from Business Manager
-   - You'll add it via bot commands later
+   - You'll add it via the application later
 
-### Phase 5: Project Setup
+### Phase 5: Add Filler Videos
 
-1. **Clone/download project**
-   ```bash
-   cd C:\Projects\Video-Editor
-   ```
-
-2. **Install dependencies**
-   ```bash
-   npm install
-   ```
-
-3. **Create .env file**
-   ```
-   cp .env.example .env
-   ```
-
-4. **Edit .env with your credentials**
-   ```env
-   TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklmnoPQRstuvWxyz
-   ADMIN_TELEGRAM_ID=987654321
-   SUPABASE_URL=https://xxxxx.supabase.co
-   SUPABASE_KEY=eyJhbGc...
-   ENCRYPTION_KEY=a3f8d9e2c1b5f7a9d4e8c3f1b9a5d7e2
-   ```
-
-   **Generate encryption key:**
-   ```bash
-   node -e "console.log(require('crypto').randomBytes(16).toString('hex'))"
-   ```
-
-5. **Add filler videos**
-   - Upload via bot: `/addfillervideo` command (see commands below)
-   - Or place MP4 files in `filler_videos/` folder manually
+- Upload via the application interface
+- Or place MP4 files in `filler_videos/` folder manually
 
 ---
 
@@ -225,104 +209,9 @@ pm2 flush
 
 ---
 
-## Telegram Bot Commands
-
-### 👤 User Commands (All Users)
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/start` | Start bot / request approval | `/start` |
-| `/help` | Get help and instructions | `/help` |
-| `/listkeys` | View your API keys | `/listkeys` |
-| `/addyoutubekey <key>` | Add YouTube API key (max 3) | `/addyoutubekey AIzaSy...` |
-| `/addfacebookkey <token>` | Add Facebook token (max 3) | `/addfacebookkey EAAB...` |
-| `/removekey <id>` | Delete an API key | `/removekey abc123` |
-| `/status` | Check bot status | `/status` |
-
-### 📹 Video Management (Approved Users)
-
-1. **Upload video**
-   - Send any MP4/MOV/AVI/MKV video file
-   - Bot automatically processes it
-   - Sends preview with approve/reject buttons
-
-2. **Approve & Post**
-   - Click ✅ button on preview
-   - Bot posts to YouTube & Facebook
-   - Videos auto-deleted from storage
-
-3. **Reject**
-   - Click ❌ button on preview
-   - Video deleted from storage
-   - No posting
-
-### 🎬 Filler Video Management (Admin Only)
-
-| Command | Description |
-|---------|-------------|
-| `/addfillervideo` | Upload new filler video |
-| `/listfillervideos` | View all filler videos |
-| `/deletefillerv ideo <name>` | Delete filler video |
-
-1. **Upload filler video**
-   ```
-   You: /addfillervideo
-   Bot: Send a video file
-   You: [Upload gameplay.mp4]
-   Bot: ✅ Uploaded successfully!
-   ```
-
-2. **View uploaded videos**
-   ```
-   You: /listfillervideos
-   Bot: Shows all with names and sizes
-   ```
-
-3. **Delete a video**
-   ```
-   You: /deletefillerv ideo filler_1707600000_gameplay.mp4
-   Bot: ✅ Deleted!
-   ```
-
-### 👥 User Management (Admin Only)
-
-| Command | Description | Example |
-|---------|-------------|---------|
-| `/listusers` | View all users (pending & approved) | `/listusers` |
-| `/approveuser <id>` | Approve a user | `/approveuser 987654321` |
-| `/rejectuser <id>` | Reject a user | `/rejectuser 987654321` |
-| `/revokeuser <id>` | Revoke user access | `/revokeuser 987654321` |
-
-### Approval Workflow
-
-1. **New user sends `/start`**
-   ```
-   User: /start
-   Bot: Shows "Request Approval" button
-   ```
-
-2. **User requests approval**
-   ```
-   User: [Clicks "Request Approval"]
-   Admin: [Gets notification with approve/reject buttons]
-   ```
-
-3. **Admin approves**
-   ```
-   Admin: [Clicks Approve]
-   User: ✅ You've been approved!
-   ```
-
-4. **User can now use bot**
-   ```
-   User: [Can upload videos and add API keys]
-   ```
-
----
-
 ## How to Use
 
-### Step 1: Start the Bot
+### Step 1: Start the Server
 
 **With PM2** (Recommended for production):
 ```bash
@@ -334,48 +223,42 @@ pm2 start ecosystem.config.js
 npm start
 ```
 
-### Step 2: Set Up in Telegram
+### Step 2: Access the Application
 
-1. Find your bot (search by username)
-2. Send `/start`
-3. If you're admin: You see main menu
-4. If you're new user: Click "Request Approval"
+1. Open your web browser
+2. Navigate to `http://localhost:3000` (or configured port)
+3. Log in or register for an account
+4. If you're a new user: Submit approval request
+5. Admin will review and approve/reject
 
 ### Step 3: Add API Keys
 
-**As Admin or Approved User:**
+**Once approved:**
+- Navigate to Settings or Account page
+- Add YouTube API key (max 3 keys per user)
+- Add Facebook access token (max 3 tokens per user)
 
-```
-/addyoutubekey YOUR_YOUTUBE_API_KEY
-/addfacebookkey YOUR_FACEBOOK_ACCESS_TOKEN
-```
-
-**Add Filler Videos** (Admin only):
-
-```
-/addfillervideo
-[Send video file]
-```
+**Admin users:** Can add unlimited API keys
 
 ### Step 4: Upload and Process Video
 
 **For Regular Users** (1 at a time):
-1. **Send video to bot**
-   - Any MP4, MOV, AVI, or MKV file
-   - 10 seconds to 5 minutes
+1. **Upload video**
+   - Via the upload interface (MP4, MOV, AVI, or MKV)
+   - 10 seconds to 5 minutes duration
 
-2. **Bot processes**
+2. **Application processes**
    - Adds filler video automatically
    - Creates split-screen preview
-   - Sends back in 2-10 minutes
+   - Sends notification in 2-10 minutes
 
 3. **Approve or Reject**
    - ✅ Approve: Posts to YouTube & Facebook, deletes from storage
    - ❌ Reject: Deletes from storage
-   - **Then** can send next video
+   - Then can upload next video
 
 **For Admin** (Unlimited concurrent):
-- Send as many videos as you want
+- Upload as many videos as you want
 - All process simultaneously
 - No waiting between videos
 
@@ -475,11 +358,14 @@ After:  100 rejected videos = 0GB wasted ✅
 ```
 Video-Editor/
 ├── src/
-│   ├── bot/                    # Telegram bot
-│   │   ├── telegram.js         # Bot setup & event handlers
-│   │   └── commands.js         # Command handlers
-│   ├── user/
-│   │   └── manager.js          # User approval & keys
+│   ├── controllers/
+│   │   ├── auth-controller.js   # Authentication
+│   │   ├── user-controller.js   # User management
+│   │   └── video-controller.js  # Video operations
+│   ├── routes/
+│   │   ├── auth-routes.js
+│   │   ├── user-routes.js
+│   │   └── video-routes.js
 │   ├── video/
 │   │   ├── processor.js        # Split-screen editing
 │   │   └── utils.js            # Video utilities
@@ -491,8 +377,14 @@ Video-Editor/
 │   │   └── facebook.js         # Facebook upload
 │   ├── workflow/
 │   │   └── manager.js          # Workflow orchestration
-│   ├── security/
-│   │   └── encryption.js       # API key encryption (optional)
+│   ├── auth/
+│   │   ├── email-auth.js
+│   │   ├── token-manager.js
+│   │   └── password-utils.js
+│   ├── middleware/
+│   │   ├── jwt-middleware.js
+│   │   ├── error-handler.js
+│   │   └── rate-limit.js
 │   └── config/
 │       └── constants.js        # Configuration
 ├── migrations/
@@ -500,13 +392,13 @@ Video-Editor/
 │   └── 002_add_video_paths.sql
 ├── filler_videos/              # Filler video library
 ├── temp/                       # Temporary files
-├── logs/                       # PM2 logs
+├── uploads/                    # Upload storage
 ├── ecosystem.config.js         # PM2 configuration
 ├── .env                        # Credentials (in .gitignore)
 ├── .env.example                # Template
 ├── .gitignore
 ├── package.json
-├── index.js                    # Main entry point
+├── server.js                   # Main entry point
 └── README.md                   # This file
 ```
 
@@ -514,27 +406,26 @@ Video-Editor/
 
 ## Troubleshooting
 
-### Bot Doesn't Start
+### Server Doesn't Start
 
 ```bash
 # Check for errors
 npm start
 
 # Check logs
-pm2 logs video-editor-bot
+pm2 logs
 
 # Common issues:
-# 1. Missing TELEGRAM_BOT_TOKEN in .env
+# 1. Missing environment variables in .env
 # 2. Supabase not initialized
 # 3. FFmpeg not installed/in PATH
+# 4. Port already in use
 ```
 
 ### "No filler videos found"
 
 ```bash
-# Upload filler videos via bot:
-# /addfillervideo → Send video
-
+# Upload filler videos via web interface
 # Or check Supabase:
 # Storage → filler_videos bucket should have videos
 ```
@@ -547,7 +438,7 @@ pm2 logs video-editor-bot
 # Should have: original_video_path, edited_video_path
 
 # Check cleanup job is running:
-pm2 logs video-editor-bot | grep "cleanup"
+pm2 logs | grep "cleanup"
 ```
 
 ### API Keys Not Working
@@ -559,7 +450,7 @@ pm2 logs video-editor-bot | grep "cleanup"
 
 # If decryption fails:
 # Check ENCRYPTION_KEY in .env
-# Re-add the API key via bot
+# Re-add the API key via the application
 ```
 
 ### FFmpeg Error
@@ -599,18 +490,18 @@ ffmpeg -version
 
 **Regular Users:**
 ```
-User sends video 1
+User uploads video 1
     ↓
-Bot processes (2-10 min)
+App processes (2-10 min)
     ↓
 User approves/rejects
     ↓
-NOW can send video 2
+NOW can upload video 2
 ```
 
 **Admin:**
 ```
-Admin sends video 1, 2, 3...
+Admin uploads video 1, 2, 3...
     ↓
 All process simultaneously
     ↓
@@ -619,11 +510,13 @@ No waiting required
 
 **API Keys:**
 ```
-Regular User:    /addyoutubekey   (max 3 keys)
-                 /addfacebookkey  (max 3 keys)
+Regular User:    Add via Settings   (max 3 keys each)
+                 YouTube: max 3
+                 Facebook: max 3
 
-Admin:           /addyoutubekey   (unlimited)
-                 /addfacebookkey  (unlimited)
+Admin:           Add via Settings   (unlimited)
+                 YouTube: unlimited
+                 Facebook: unlimited
 ```
 
 ---
@@ -633,10 +526,10 @@ Admin:           /addyoutubekey   (unlimited)
 | Aspect | Limit | Notes |
 |--------|-------|-------|
 | Concurrent Videos | 1 per user | Sequential processing |
-| Video File Size | 2GB | Telegram limit |
+| Video File Size | No hard limit | Limited by storage |
 | Processing Time | 2-15 min | Depends on length |
-| Filler Videos | Unlimited | Upload via bot |
-| Users | Unlimited | Admin approval |
+| Filler Videos | Unlimited | Upload via application |
+| Users | Unlimited | Admin approval required |
 
 ---
 
@@ -686,7 +579,7 @@ Admin:           /addyoutubekey   (unlimited)
 
 ### Common Issues
 
-1. **Bot token invalid** → Check .env, regenerate from BotFather
+1. **Environment variables missing** → Check .env, ensure all required variables are set
 2. **Supabase connection fails** → Check URL and key, verify project active
 3. **FFmpeg not found** → Install and add to PATH
 4. **Videos not deleting** → Run database migration, check cleanup logs
@@ -694,7 +587,7 @@ Admin:           /addyoutubekey   (unlimited)
 
 ### Get Help
 
-- Check logs: `pm2 logs video-editor-bot`
+- Check logs: `pm2 logs`
 - Verify .env: All credentials correct?
 - Test Supabase: Can you connect from other tools?
 - Test FFmpeg: Run `ffmpeg -version`
@@ -706,7 +599,7 @@ Admin:           /addyoutubekey   (unlimited)
 - ✅ API keys encrypted in database (implement SECURITY_GUIDE.md)
 - ✅ Videos auto-deleted after processing
 - ✅ User approval controls access
-- ✅ Admin-only commands protected
+- ✅ Admin-only endpoints protected with authentication
 - ⚠️ Keep .env private (never commit to Git)
 - ⚠️ Rotate API keys periodically
 - ⚠️ Monitor API usage for unusual activity
@@ -716,11 +609,11 @@ Admin:           /addyoutubekey   (unlimited)
 ## Architecture
 
 ```
-User → Telegram → Bot → Supabase Storage → Processing → YouTube + Facebook
-                          ↓
-                    Video Database
-                    User Profiles
-                    API Keys (encrypted)
+User → Web App → API Server → Supabase Storage → Processing → YouTube + Facebook
+                                  ↓
+                            Video Database
+                            User Profiles
+                            API Keys (encrypted)
 
 Cleanup Job (every 30 min):
 - Finds stuck videos (> 1 hour)
