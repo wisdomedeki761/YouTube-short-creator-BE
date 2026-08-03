@@ -1,9 +1,10 @@
 const path = require('path');
 const fs = require('fs-extra');
 const { processVideo, generateVideoTitle, generateVideoCaption } = require('../video/processor');
-const { getSupabaseClient } = require('../storage/supabase');
+const { query } = require('../storage/postgres');
 const { uploadToPinata, deleteFromPinata, getEditedVideoAccount } = require('../storage/pinata');
 const axios = require('axios');
+const openRouter = require('../utils/openrouter');
 const { uploadShort, getAvailableApiKey: getYoutubeKey } = require('../platforms/youtube');
 const { uploadReel, getAvailableApiKey: getFacebookKey } = require('../platforms/facebook');
 const { VIDEO_STATUS, ERROR_MESSAGES, SUCCESS_MESSAGES } = require('../config/constants');
@@ -55,13 +56,70 @@ async function updateProgress(videoId, stage, progress, message) {
   emitProgress(videoId, stage, progress, message);
 
   try {
-    const client = getSupabaseClient();
-    await client
-      .from('videos')
-      .update({ processing_progress: Math.round(progress) })
-      .eq('id', videoId);
+    await query(
+      'UPDATE videos SET processing_progress = $1 WHERE id = $2',
+      [Math.round(progress), videoId]
+    );
   } catch (err) {
     console.warn(`Failed to update progress in DB for ${videoId}:`, err.message);
+  }
+}
+
+/**
+ * Metadata-Only Pipeline
+ * Bypasses full production and just applies visual uniqueness + AI SEO
+ */
+async function processMetadataOnlyWorkflow(videoId, userId, videoPath, videoBrief, targetCountry) {
+  try {
+    console.log(`\n✨ Starting Metadata-Only processing for ${videoId}...`);
+
+    await updateProgress(videoId, 'analyzing', 10, 'Generating AI SEO...');
+    
+    // 1. Generate AI SEO using OpenRouter
+    const seoPackage = await openRouter.generateSEO(videoBrief, targetCountry);
+
+    // 2. Apply Visual Uniqueness (Anti-Flag)
+    await updateProgress(videoId, 'processing', 40, 'Applying visual uniqueness filters...');
+    const { applyVisualUniqueness, forceVerticalRatio } = require('../video/utils');
+    
+    const tempProcessedPath = path.join(process.cwd(), 'temp', `unique_${videoId}.mp4`);
+    
+    // First ensure it's 9:16
+    const verticalPath = path.join(process.cwd(), 'temp', `vertical_${videoId}.mp4`);
+    await forceVerticalRatio(videoPath, verticalPath);
+    
+    // Then apply uniqueness filters
+    await applyVisualUniqueness(verticalPath, tempProcessedPath);
+
+    // 3. Upload to Pinata
+    await updateProgress(videoId, 'uploading', 80, 'Uploading optimized video...');
+    const pinataAccount = getEditedVideoAccount();
+    const uploadResult = await uploadToPinata(tempProcessedPath, pinataAccount, {
+      name: `optimized_${videoId}.mp4`,
+      contentType: 'video/mp4',
+      metadata: {
+        video_id: videoId,
+        user_id: userId,
+        type: 'optimized_video',
+      },
+    });
+
+    // 4. Update Database
+    await query(
+      'UPDATE videos SET edited_video_url = $1, title = $2, description = $3, status = $4 WHERE id = $5',
+      [uploadResult.url, seoPackage.title, seoPackage.description, VIDEO_STATUS.APPROVED, videoId]
+    );
+
+    await updateProgress(videoId, 'completed', 100, 'Optimized package ready!');
+    
+    return {
+      videoUrl: uploadResult.url,
+      seo: seoPackage
+    };
+  } catch (error) {
+    console.error('Metadata-Only Workflow Error:', error);
+    emitError(videoId, `Metadata processing failed: ${error.message}`);
+    throw error;
   }
 }
 
