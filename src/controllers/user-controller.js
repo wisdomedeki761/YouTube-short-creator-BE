@@ -3,7 +3,7 @@
  * Handles user profile and API key management
  */
 
-const { getSupabaseClient } = require('../storage/supabase');
+const { query } = require('../storage/postgres');
 const { v4: uuidv4 } = require('uuid');
 
 /**
@@ -11,14 +11,13 @@ const { v4: uuidv4 } = require('uuid');
  */
 async function getProfile(userId) {
   try {
-    const client = getSupabaseClient();
-    const { data: user, error } = await client
-      .from('users')
-      .select('telegram_id, username, email, is_admin, is_approved, created_at, last_login')
-      .eq('telegram_id', userId)
-      .single();
+    const rows = await query(
+      'SELECT telegram_id, username, email, is_admin, is_approved, created_at, last_login FROM users WHERE telegram_id = $1',
+      [userId]
+    );
+    const user = rows[0];
 
-    if (error || !user) {
+    if (!user) {
       throw new Error('User not found');
     }
 
@@ -47,16 +46,16 @@ async function updateProfile(userId, updates) {
       throw new Error('No valid fields to update');
     }
 
-    const client = getSupabaseClient();
-    const { data: user, error } = await client
-      .from('users')
-      .update(updateData)
-      .eq('telegram_id', userId)
-      .select()
-      .single();
+    const fields = Object.keys(updateData).map((key, index) => `$${index + 1} ${key}`).join(', ');
+    const values = Object.values(updateData);
+    values.push(userId);
 
-    if (error) {
-      throw error;
+    const sql = `UPDATE users SET ${fields} WHERE telegram_id = $${values.length} RETURNING *`;
+    const rows = await query(sql, values);
+    const user = rows[0];
+
+    if (!user) {
+      throw new Error('User not found');
     }
 
     return user;
@@ -78,55 +77,54 @@ async function addApiKey(userId, platform, apiKey) {
       throw new Error('Platform must be "youtube" or "facebook"');
     }
 
-    const client = getSupabaseClient();
-
     // Check limit - regular users can have max 3 keys per platform
-    const { data: existingKeys } = await client
-      .from('api_keys')
-      .select('id')
-      .eq('user_id', userId)
-      .eq('platform', platform.toLowerCase());
+    const keyRows = await query(
+      'SELECT id FROM api_keys WHERE user_id = $1 AND platform = $2',
+      [userId, platform.toLowerCase()]
+    );
 
     // Get user to check if admin
-    const { data: user } = await client
-      .from('users')
-      .select('is_admin')
-      .eq('telegram_id', userId)
-      .single();
+    const userRows = await query(
+      'SELECT is_admin FROM users WHERE telegram_id = $1',
+      [userId]
+    );
+    const user = userRows[0];
 
     const maxKeys = user?.is_admin ? 999 : 3;
 
-    if (existingKeys && existingKeys.length >= maxKeys) {
+    if (keyRows.length >= maxKeys) {
       throw new Error(`Maximum ${maxKeys} ${platform} keys allowed`);
     }
 
-    // Add key
-    const { data: key, error } = await client
-      .from('api_keys')
-      .insert({
-        id: uuidv4(),
-        user_id: userId,
-        platform: platform.toLowerCase(),
-        api_key: apiKey,
-        status: 'active',
-        created_at: new Date().toISOString()
-      })
-      .select()
-      .single();
+    const keyId = uuidv4();
+    const insertSql = `
+      INSERT INTO api_keys (id, user_id, platform, api_key, status, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6)
+      RETURNING *
+    `;
+    const insertValues = [
+      keyId,
+      userId,
+      platform.toLowerCase(),
+      apiKey,
+      'active',
+      new Date().toISOString()
+    ];
 
-    if (error) {
-      throw error;
+    const result = await query(insertSql, insertValues);
+    const key = result[0];
+
+    if (!key) {
+      throw new Error('Failed to create API key record');
     }
 
-    // Map database fields to frontend expected format
     return {
       id: key.id,
+      userId: key.user_id,
       platform: key.platform,
-      key: key.api_key, // Map api_key to key for frontend
-      status: key.status || 'active',
-      usageCount: key.usage_count || 0,
-      lastUsed: key.last_used || null,
-      createdAt: key.created_at || new Date().toISOString(),
+      apiKey: key.api_key,
+      status: key.status,
+      createdAt: key.created_at
     };
   } catch (error) {
     throw new Error(`Failed to add API key: ${error.message}`);

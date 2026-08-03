@@ -11,19 +11,11 @@ const VIDEO_CONFIG = {
   AUDIO_BITRATE: '128k',
 };
 
-// Supabase Configuration
-const SUPABASE_CONFIG = {
-  URL: process.env.SUPABASE_URL,
-  KEY: process.env.SUPABASE_KEY, // Anon key for client operations
-  SERVICE_KEY: process.env.SUPABASE_SERVICE_KEY || process.env.SUPABASE_SERVICE_ROLE || process.env.SUPABASE_KEY, // Service role key for admin operations
-  BUCKET_NAME: 'videos',
-  FILLER_BUCKET_NAME: 'filler_videos',
-};
-
 // User Configuration
 const USER_CONFIG = {
   MAX_API_KEYS_PER_PLATFORM: 3,
 };
+
 
 // Platform Configuration
 const PLATFORM_CONFIG = {
@@ -75,7 +67,6 @@ const SUCCESS_MESSAGES = {
 
 module.exports = {
   VIDEO_CONFIG,
-  SUPABASE_CONFIG,
   USER_CONFIG,
   PLATFORM_CONFIG,
   VIDEO_STATUS,

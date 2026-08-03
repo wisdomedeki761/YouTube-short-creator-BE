@@ -24,7 +24,7 @@ const {
   rejectVideo,
   deleteVideo
 } = require('../controllers/video-controller');
-const { processVideoWorkflow } = require('../workflow/manager');
+const { processVideoWorkflow, processMetadataOnlyWorkflow } = require('../workflow/manager');
 const { emitProgress, emitError } = require('../websocket/socket-server');
 
 /**
@@ -81,6 +81,60 @@ router.post('/upload', approvedUserMiddleware, uploadVideoMiddleware, async (req
       });
   } catch (error) {
     console.error('Upload video error:', error.message);
+    return res.status(400).json({
+      ...errorResponse('UPLOAD_ERROR', error.message).body
+    });
+  }
+});
+
+/**
+ * POST /api/videos/upload-metadata-only
+ * Upload and apply only visual uniqueness + AI SEO
+ */
+router.post('/upload-metadata-only', approvedUserMiddleware, uploadVideoMiddleware, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    if (!req.file) {
+      return res.status(400).json({
+        ...errorResponse('VALIDATION_ERROR', 'Video file is required').body
+      });
+    }
+
+    const file = req.file;
+    const tempDir = path.join(__dirname, '../../uploads/temp');
+    await fs.ensureDir(tempDir);
+
+    const tempFilePath = path.join(tempDir, `${userId}_${Date.now()}_${file.originalname}`);
+    await fs.writeFile(tempFilePath, file.buffer);
+
+    // Metadata for AI SEO
+    const { videoBrief, targetCountry } = req.body;
+
+    if (!videoBrief) {
+      return res.status(400).json({
+        ...errorResponse('VALIDATION_ERROR', 'Video brief is required for AI SEO').body
+      });
+    }
+
+    const video = await createVideo(userId, {
+      title: 'Optimizing Metadata...',
+      description: videoBrief
+    });
+
+    res.status(201).json({
+      ...successResponse(video, 'Metadata optimization started').body
+    });
+
+    emitProgress(video.id, 'upload_complete', 5, 'File received, optimizing metadata...');
+
+    processMetadataOnlyWorkflow(video.id, userId, tempFilePath, videoBrief, targetCountry || 'UK')
+      .catch(error => {
+        console.error(`Error in metadata-only workflow for ${video.id}:`, error.message);
+        emitError(video.id, error.message);
+      });
+  } catch (error) {
+    console.error('Metadata-only upload error:', error.message);
     return res.status(400).json({
       ...errorResponse('UPLOAD_ERROR', error.message).body
     });

@@ -3,7 +3,7 @@
  * Handles Google account linking and authentication
  */
 
-const { getSupabaseClient } = require('../storage/supabase');
+const { query } = require('../storage/postgres');
 const { generateAccessToken, generateRefreshToken } = require('./token-manager');
 const { v4: uuidv4 } = require('uuid');
 
@@ -18,21 +18,16 @@ async function googleLogin(profile) {
       throw new Error('Invalid Google profile');
     }
 
-    const client = getSupabaseClient();
-
     // Check if user exists by google_id
-    const { data: existingUser } = await client
-      .from('users')
-      .select('*')
-      .eq('google_id', profile.id)
-      .single();
+    const rows = await query('SELECT * FROM users WHERE google_id = $1', [profile.id]);
+    const existingUser = rows[0];
 
     if (existingUser) {
       // Update last login
-      await client
-        .from('users')
-        .update({ last_login: new Date().toISOString() })
-        .eq('telegram_id', existingUser.telegram_id);
+      await query(
+        'UPDATE users SET last_login = $1 WHERE telegram_id = $2',
+        [new Date().toISOString(), existingUser.telegram_id]
+      );
 
       // Generate tokens
       const accessToken = generateAccessToken(existingUser);
@@ -53,11 +48,8 @@ async function googleLogin(profile) {
     }
 
     // Check if email already registered with email auth
-    const { data: emailUser } = await client
-      .from('users')
-      .select('*')
-      .eq('email', profile.email)
-      .single();
+    const emailRows = await query('SELECT * FROM users WHERE email = $1', [profile.email]);
+    const emailUser = emailRows[0];
 
     if (emailUser && emailUser.auth_method === 'email') {
       throw new Error('This email is already registered with email/password auth');
@@ -66,23 +58,27 @@ async function googleLogin(profile) {
     // Create new user with Google OAuth
     const userId = uuidv4();
 
-    const { data: newUser, error } = await client
-      .from('users')
-      .insert({
-        telegram_id: userId,
-        email: profile.email,
-        username: profile.displayName || profile.name || profile.email.split('@')[0],
-        google_id: profile.id,
-        auth_method: 'google',
-        is_approved: true,
-        is_email_verified: true,
-        created_at: new Date().toISOString()
-      })
-      .select()
-      .single();
+    const insertSql = `
+      INSERT INTO users (telegram_id, email, username, google_id, auth_method, is_approved, is_email_verified, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *
+    `;
+    const insertValues = [
+      userId,
+      profile.email,
+      profile.displayName || profile.name || profile.email.split('@')[0],
+      profile.id,
+      'google',
+      true,
+      true,
+      new Date().toISOString()
+    ];
 
-    if (error) {
-      throw error;
+    const result = await query(insertSql, insertValues);
+    const newUser = result[0];
+
+    if (!newUser) {
+      throw new Error('Failed to create Google user record');
     }
 
     // Generate tokens
