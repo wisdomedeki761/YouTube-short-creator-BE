@@ -6,8 +6,6 @@ const helmet = require('helmet');
 const path = require('path');
 const { initSocketServer } = require('./src/websocket/socket-server');
 
-// Initialize Supabase FIRST (before importing routes that use it)
-const { initSupabase } = require('./src/storage/supabase');
 // Initialize Pinata
 const { initPinataAccounts } = require('./src/storage/pinata');
 
@@ -114,11 +112,6 @@ app.use(errorHandler);
 // ============================================
 async function startServer() {
   try {
-    // Initialize Supabase
-    console.log('☁️  Initializing Supabase...');
-    await initSupabase();
-    console.log('✅ Supabase initialized\n');
-
     // Initialize Pinata
     console.log('📦 Initializing Pinata...');
     initPinataAccounts();
@@ -142,9 +135,6 @@ async function startServer() {
     });
   } catch (error) {
     console.error('\n❌ FATAL ERROR:', error.message);
-    console.error('Please check:');
-    console.error('1. SUPABASE_URL and SUPABASE_KEY are set in .env');
-    console.error('2. Supabase credentials are correct\n');
     process.exit(1);
   }
 }

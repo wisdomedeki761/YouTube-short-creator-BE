@@ -8,6 +8,8 @@ const {
   getRandomPosition,
   createFillerChain,
   createSplitScreen,
+  forceVerticalRatio,
+  applyVisualUniqueness,
 } = require('./utils');
 const { emitProgress } = require('../websocket/socket-server');
 
