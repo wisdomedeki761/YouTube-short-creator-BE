@@ -3,7 +3,7 @@
  * Handles user registration, login, and password management
  */
 
-const { getSupabaseClient } = require('../storage/supabase');
+const { query } = require('../storage/postgres');
 const { hashPassword, verifyPassword, validatePassword } = require('./password-utils');
 const { generateAccessToken, generateRefreshToken } = require('./token-manager');
 const { validateEmail, sanitizeEmail } = require('../utils/validators');
@@ -40,14 +40,9 @@ async function registerUser(email, password, username) {
     const passwordHash = await hashPassword(password);
 
     // Check if email already exists
-    const client = getSupabaseClient();
-    const { data: existingUser } = await client
-      .from('users')
-      .select('id')
-      .eq('email', sanitizedEmail)
-      .single();
+    const rows = await query('SELECT id FROM users WHERE email = $1', [sanitizedEmail]);
 
-    if (existingUser) {
+    if (rows.length > 0) {
       throw new Error('Email already registered');
     }
 
@@ -55,23 +50,27 @@ async function registerUser(email, password, username) {
     const { v4: uuidv4 } = require('uuid');
     const userId = uuidv4(); // Generate new ID for non-Telegram users
 
-    const { data: newUser, error } = await client
-      .from('users')
-      .insert({
-        telegram_id: userId,
-        email: sanitizedEmail,
-        username: username.trim(),
-        password_hash: passwordHash,
-        auth_method: 'email',
-        is_approved: false, // Require admin approval for new users
-        is_email_verified: true,
-        created_at: new Date().toISOString()
-      })
-      .select()
-      .single();
+    const insertSql = `
+      INSERT INTO users (telegram_id, email, username, password_hash, auth_method, is_approved, is_email_verified, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      RETURNING *
+    `;
+    const insertValues = [
+      userId,
+      sanitizedEmail,
+      username.trim(),
+      passwordHash,
+      'email',
+      false,
+      true,
+      new Date().toISOString()
+    ];
 
-    if (error) {
-      throw error;
+    const result = await query(insertSql, insertValues);
+    const newUser = result[0];
+
+    if (!newUser) {
+      throw new Error('Failed to create user record');
     }
 
     // Generate tokens
