@@ -3,7 +3,7 @@
  * Handles video upload, processing, and management
  */
 
-const { getSupabaseClient } = require('../storage/supabase');
+const { query } = require('../storage/postgres');
 const { v4: uuidv4 } = require('uuid');
 
 /**
@@ -11,31 +11,30 @@ const { v4: uuidv4 } = require('uuid');
  */
 async function createVideo(userId, videoData) {
   try {
-    const client = getSupabaseClient();
-    const insertData = {
-      id: uuidv4(),
-      user_id: userId,
-      status: 'processing',
-      processing_progress: 0,
-      created_at: new Date().toISOString()
-    };
+    const id = uuidv4();
+    const createdAt = new Date().toISOString();
+    
+    const sql = `
+      INSERT INTO videos (id, user_id, status, processing_progress, title, description, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+      RETURNING *
+    `;
+    
+    const values = [
+      id, 
+      userId, 
+      'processing', 
+      0, 
+      videoData.title || null, 
+      videoData.description || null, 
+      createdAt
+    ];
 
-    // Add optional fields if provided
-    if (videoData.title) {
-      insertData.title = videoData.title;
-    }
-    if (videoData.description) {
-      insertData.description = videoData.description;
-    }
+    const rows = await query(sql, values);
+    const video = rows[0];
 
-    const { data: video, error } = await client
-      .from('videos')
-      .insert(insertData)
-      .select()
-      .single();
-
-    if (error) {
-      throw error;
+    if (!video) {
+      throw new Error('Failed to insert video record');
     }
 
     return mapVideoToFrontend(video);
@@ -70,40 +69,31 @@ function mapVideoToFrontend(video) {
 async function getVideos(userId, filters = {}) {
   try {
     const { status, page = 1, limit = 10 } = filters;
+    const offset = (page - 1) * limit;
 
-    const client = getSupabaseClient();
-
-    // Single query with count
-    let query = client
-      .from('videos')
-      .select('*', { count: 'exact' })
-      .eq('user_id', userId);
+    let sql = `SELECT *, count(*) OVER() as total_count FROM videos WHERE user_id = $1`;
+    const values = [userId];
 
     if (status) {
-      query = query.eq('status', status);
+      sql += ` AND status = $${values.length + 1}`;
+      values.push(status);
     }
 
-    const offset = (page - 1) * limit;
-    const { data: videos, count: total, error } = await query
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
+    sql += ` ORDER BY created_at DESC LIMIT $${values.length + 1} OFFSET $${values.length + 2}`;
+    values.push(limit, offset);
 
-    if (error) {
-      console.error('getVideos DB error:', error);
-      throw error;
-    }
+    const rows = await query(sql, values);
+    const total = rows.length > 0 ? parseInt(rows[0].total_count) : 0;
 
-    console.log(`📋 DB returned ${videos?.length || 0} videos for user ${userId} (total: ${total})`);
+    console.log(`📋 DB returned ${rows.length} videos for user ${userId} (total: ${total})`);
 
     return {
-      videos: (videos || []).map(mapVideoToFrontend),
-      total: total || 0,
-      page,
-      limit,
-      pages: Math.ceil((total || 0) / limit)
+      videos: rows.map(mapVideoToFrontend),
+      total: total,
     };
   } catch (error) {
-    throw new Error(`Failed to get videos: ${error.message}`);
+    console.error('getVideos DB error:', error);
+    throw error;
   }
 }
 
@@ -112,15 +102,13 @@ async function getVideos(userId, filters = {}) {
  */
 async function getVideoById(userId, videoId) {
   try {
-    const client = getSupabaseClient();
-    const { data: video, error } = await client
-      .from('videos')
-      .select('*')
-      .eq('id', videoId)
-      .eq('user_id', userId)
-      .single();
+    const rows = await query(
+      'SELECT * FROM videos WHERE id = $1 AND user_id = $2',
+      [videoId, userId]
+    );
+    const video = rows[0];
 
-    if (error || !video) {
+    if (!video) {
       throw new Error('Video not found');
     }
 
@@ -130,43 +118,19 @@ async function getVideoById(userId, videoId) {
   }
 }
 
-/**
- * Update video status
- */
 async function updateVideoStatus(userId, videoId, status) {
   try {
-    const client = getSupabaseClient();
+    // Verify video belongs to user and update status
+    const result = await query(
+      'UPDATE videos SET status = $1, updated_at = NOW() WHERE id = $2 AND user_id = $3 RETURNING id',
+      [status, videoId, userId]
+    );
 
-    // Verify video belongs to user
-    const { data: video } = await client
-      .from('videos')
-      .select('id')
-      .eq('id', videoId)
-      .eq('user_id', userId)
-      .single();
-
-    if (!video) {
-      throw new Error('Video not found');
+    if (result.length === 0) {
+      throw new Error('Video not found or unauthorized');
     }
 
-    const updateData = { status };
-
-    if (status === 'completed' || status === 'rejected') {
-      updateData.processed_at = new Date().toISOString();
-    }
-
-    const { data: updated, error } = await client
-      .from('videos')
-      .update(updateData)
-      .eq('id', videoId)
-      .select()
-      .single();
-
-    if (error) {
-      throw error;
-    }
-
-    return updated;
+    return { success: true, message: `Video status updated to ${status}` };
   } catch (error) {
     throw new Error(`Failed to update video status: ${error.message}`);
   }
@@ -214,15 +178,12 @@ async function rejectVideo(userId, videoId) {
  */
 async function deleteVideo(userId, videoId) {
   try {
-    const client = getSupabaseClient();
-
     // Verify video belongs to user
-    const { data: video } = await client
-      .from('videos')
-      .select('*')
-      .eq('id', videoId)
-      .eq('user_id', userId)
-      .single();
+    const rows = await query(
+      'SELECT id, edited_video_ipfs_hash FROM videos WHERE id = $1 AND user_id = $2',
+      [videoId, userId]
+    );
+    const video = rows[0];
 
     if (!video) {
       throw new Error('Video not found');
@@ -241,14 +202,7 @@ async function deleteVideo(userId, videoId) {
     }
 
     // Delete from database
-    const { error } = await client
-      .from('videos')
-      .delete()
-      .eq('id', videoId);
-
-    if (error) {
-      throw error;
-    }
+    await query('DELETE FROM videos WHERE id = $1 AND user_id = $2', [videoId, userId]);
 
     return { message: 'Video deleted successfully' };
   } catch (error) {
