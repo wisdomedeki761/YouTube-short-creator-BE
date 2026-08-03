@@ -1,0 +1,73 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id               String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  telegramId       String?  @unique @map("telegram_id")
+  email            String   @unique
+  username         String
+  passwordHash     String?  @map("password_hash")
+  authMethod       String   @default("email") @map("auth_method")
+  isAdmin          Boolean  @default(false) @map("is_admin")
+  isApproved       Boolean  @default(false) @map("is_approved")
+  isEmailVerified  Boolean  @default(false) @map("is_email_verified")
+  createdAt        DateTime @default(now()) @map("created_at")
+  lastLogin        DateTime? @map("last_login")
+  updatedAt        DateTime @default(now()) @updatedAt @map("updated_at")
+  videos           Video[]  @relation("UserVideos")
+  apiKeys          ApiKey[] @relation("UserApiKeys")
+
+  @@map("users")
+}
+
+model Video {
+  id                 String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId             String   @map("user_id")
+  status             String   @default("processing")
+  originalVideoUrl   String?  @map("original_video_url")
+  originalVideoPath  String?  @map("original_video_path")
+  editedVideoUrl     String?  @map("edited_video_url")
+  youtubeUrl         String?  @map("youtube_url")
+  facebookUrl        String?  @map("facebook_url")
+  title              String?
+  description        String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt          DateTime @default(now()) @updatedAt @map("updated_at")
+  user               User     @relation("UserVideos", fields: [userId], references: [telegramId], onDelete: Cascade)
+
+  @@map("videos")
+}
+
+model ApiKey {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId      String   @map("user_id")
+  platform    String   // youtube or facebook
+  apiKey      String   @map("api_key")
+  status      String   @default("active")
+  createdAt   DateTime @default(now()) @map("created_at")
+  lastUsed    DateTime? @map("last_used")
+  usageCount  Int      @default(0) @map("usage_count")
+  user        User     @relation("UserApiKeys", fields: [userId], references: [telegramId], onDelete: Cascade)
+
+  @@map("api_keys")
+}
+
+model FillerVideo {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  filename    String
+  filePath    String    @map("file_path")
+  fileSize    BigInt?   @map("file_size")
+  duration    Int?
+  orderIndex  Int       @default(0) @map("order_index")
+  timesUsed   Int       @default(0) @map("times_used")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
+
+  @@map("filler_videos")
+}

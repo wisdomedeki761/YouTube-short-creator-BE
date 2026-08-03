@@ -2,7 +2,7 @@ const axios = require('axios');
 const fs = require('fs-extra');
 const FormData = require('form-data');
 const { PLATFORM_CONFIG } = require('../config/constants');
-const { getSupabaseClient } = require('../storage/supabase');
+const { query } = require('../storage/postgres');
 
 const API_VERSION = PLATFORM_CONFIG.FACEBOOK.API_VERSION;
 const BASE_URL = `https://graph.facebook.com/${API_VERSION}`;
@@ -95,19 +95,9 @@ async function uploadReel(videoPath, caption, pageId, accessTokenData) {
  */
 async function updateApiKeyUsage(apiKeyId) {
   try {
-    const client = getSupabaseClient();
-
-    const { error } = await client
-      .from('api_keys')
-      .update({
-        usage_count: client.raw(`usage_count + 1`),
-        last_used: new Date().toISOString(),
-      })
-      .eq('id', apiKeyId);
-
-    if (error) throw error;
+    await query('UPDATE api_keys SET usage_count = usage_count + 1 WHERE id = $1', [apiKeyId]);
   } catch (error) {
-    console.error('Error updating API key usage:', error);
+    console.error('Error updating API key usage:', error.message);
   }
 }
 

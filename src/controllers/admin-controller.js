@@ -3,7 +3,7 @@
  * Handles user management, filler videos, and statistics
  */
 
-const { getSupabaseClient } = require('../storage/supabase');
+const { query } = require('../storage/postgres');
 const { v4: uuidv4 } = require('uuid');
 const { uploadToPinata } = require('../storage/pinata');
 const { getNextFillerAccount, updateAccountUsage, getAvailableFillerAccount, STORAGE_THRESHOLD } = require('../storage/storage-manager');
@@ -87,41 +87,26 @@ async function uploadToPinataWithRotation(filePath, options = {}) {
 async function getUsers(filters = {}) {
   try {
     const { status, page = 1, limit = 10 } = filters;
+    const offset = (page - 1) * limit;
 
-    const client = getSupabaseClient();
-    let query = client.from('users').select('*');
+    let sql = `SELECT * FROM users`;
+    const values = [];
 
     if (status) {
       if (status === 'pending') {
-        query = query.eq('is_approved', false);
+        sql += ` WHERE is_approved = false`;
       } else if (status === 'approved') {
-        query = query.eq('is_approved', true);
+        sql += ` WHERE is_approved = true`;
       }
     }
 
-    // Get total count
-    const { data: countData } = await query;
-    const total = countData ? countData.length : 0;
+    sql += ` LIMIT $1 OFFSET $2`;
+    const rows = await query(sql, [limit, offset]);
 
-    // Pagination
-    const offset = (page - 1) * limit;
-    const { data: users, error } = await query
-      .order('created_at', { ascending: false })
-      .range(offset, offset + limit - 1);
-
-    if (error) {
-      throw error;
-    }
-
-    return {
-      users: users || [],
-      total,
-      page,
-      limit,
-      pages: Math.ceil(total / limit)
-    };
+    return rows;
   } catch (error) {
-    throw new Error(`Failed to get users: ${error.message}`);
+    console.error('getUsers DB error:', error);
+    throw error;
   }
 }
 
@@ -130,19 +115,14 @@ async function getUsers(filters = {}) {
  */
 async function approveUser(userId) {
   try {
-    const client = getSupabaseClient();
-    const { data: user, error } = await client
-      .from('users')
-      .update({
-        is_approved: true,
-        approved_at: new Date().toISOString()
-      })
-      .eq('id', userId)
-      .select()
-      .single();
+    const result = await query(
+      'UPDATE users SET is_approved = true, updated_at = NOW() WHERE id = $1 RETURNING *',
+      [userId]
+    );
+    const user = result[0];
 
-    if (error) {
-      throw error;
+    if (!user) {
+      throw new Error('User not found');
     }
 
     return user;
@@ -156,18 +136,14 @@ async function approveUser(userId) {
  */
 async function rejectUser(userId) {
   try {
-    const client = getSupabaseClient();
-    const { data: user, error } = await client
-      .from('users')
-      .update({
-        is_approved: false
-      })
-      .eq('id', userId)
-      .select()
-      .single();
+    const result = await query(
+      'UPDATE users SET is_approved = false, updated_at = NOW() WHERE id = $1 RETURNING *',
+      [userId]
+    );
+    const user = result[0];
 
-    if (error) {
-      throw error;
+    if (!user) {
+      throw new Error('User not found');
     }
 
     return user;
@@ -181,20 +157,14 @@ async function rejectUser(userId) {
  */
 async function revokeUser(userId) {
   try {
-    const client = getSupabaseClient();
+    const result = await query(
+      'UPDATE users SET is_approved = false, updated_at = NOW() WHERE id = $1 RETURNING *',
+      [userId]
+    );
+    const user = result[0];
 
-    // Update user status
-    const { data: user, error } = await client
-      .from('users')
-      .update({
-        is_approved: false
-      })
-      .eq('id', userId)
-      .select()
-      .single();
-
-    if (error) {
-      throw error;
+    if (!user) {
+      throw new Error('User not found');
     }
 
     return user;
@@ -208,36 +178,20 @@ async function revokeUser(userId) {
  */
 async function getStatistics() {
   try {
-    const client = getSupabaseClient();
+    const userRows = await query('SELECT id FROM users');
+    const totalUsers = userRows.length;
 
-    // Get total users
-    const { data: users } = await client.from('users').select('id');
-    const totalUsers = users ? users.length : 0;
+    const approvedRows = await query('SELECT id FROM users WHERE is_approved = true');
+    const approvedCount = approvedRows.length;
 
-    // Get approved users
-    const { data: approvedUsers } = await client
-      .from('users')
-      .select('id')
-      .eq('is_approved', true);
-    const approvedCount = approvedUsers ? approvedUsers.length : 0;
+    const videoRows = await query('SELECT id FROM videos');
+    const totalVideos = videoRows.length;
 
-    // Get total videos
-    const { data: videos } = await client.from('videos').select('id');
-    const totalVideos = videos ? videos.length : 0;
+    const completedRows = await query('SELECT id FROM videos WHERE status = \'completed\'');
+    const completedCount = completedRows.length;
 
-    // Get completed videos
-    const { data: completedVideos } = await client
-      .from('videos')
-      .select('id')
-      .eq('status', 'completed');
-    const completedCount = completedVideos ? completedVideos.length : 0;
-
-    // Get processing videos
-    const { data: processingVideos } = await client
-      .from('videos')
-      .select('id')
-      .eq('status', 'processing');
-    const processingCount = processingVideos ? processingVideos.length : 0;
+    const processingRows = await query('SELECT id FROM videos WHERE status = \'processing\'');
+    const processingCount = processingRows.length;
 
     return {
       users: {
@@ -262,20 +216,9 @@ async function getStatistics() {
  */
 async function getNextFillerVideoSerial() {
   try {
-    const client = getSupabaseClient();
-    
-    // Get count of existing filler videos
-    const { count, error } = await client
-      .from('filler_videos')
-      .select('*', { count: 'exact', head: true });
-
-    if (error) {
-      console.warn('⚠️  Error getting filler video count, starting from 1:', error.message);
-      return 1;
-    }
-
-    const nextSerial = (count || 0) + 1;
-    return nextSerial;
+    const rows = await query('SELECT count(*) as count FROM filler_videos');
+    const count = parseInt(rows[0]?.count || 0);
+    return count + 1;
   } catch (error) {
     console.warn('⚠️  Error getting filler video count, starting from 1:', error.message);
     return 1;
@@ -441,17 +384,8 @@ async function uploadFillerVideo(filePath, originalFilename) {
  */
 async function getFillerVideos() {
   try {
-    const client = getSupabaseClient();
-    const { data: videos, error } = await client
-      .from('filler_videos')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) {
-      throw error;
-    }
-
-    return videos || [];
+    const rows = await query('SELECT * FROM filler_videos ORDER BY created_at DESC');
+    return rows;
   } catch (error) {
     throw new Error(`Failed to get filler videos: ${error.message}`);
   }
